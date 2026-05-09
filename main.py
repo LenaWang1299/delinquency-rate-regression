@@ -1,8 +1,20 @@
 # Imports
+import os
 import pandas as pd
 import numpy as np
 import matplotlib.pyplot as plt
 import statsmodels.api as sm
+import seaborn as sns
+
+# Create output directories
+os.makedirs('figures', exist_ok=True)
+os.makedirs('output', exist_ok=True)
+
+def save_text(content, filename):
+    path = os.path.join('output', filename)
+    with open(path, 'w') as f:
+        f.write(content)
+    print(content)
 
 # Load data
 df = pd.read_excel('data/Econ318_RawData_Paper.xlsx')
@@ -27,7 +39,8 @@ Y_var_log = 'log_Delinquency'
 #     plt.xlabel(var)
 #     plt.ylabel(Y_var)
 #     plt.title(f'{Y_var} vs {var}')
-#     plt.show()
+#     plt.savefig(f'figures/scatter_{var}.png', dpi=150, bbox_inches='tight')
+#     plt.close()
 #
 # ----------------------------
 # 2. HISTOGRAM (lin-lin model)
@@ -49,9 +62,8 @@ for i, var in enumerate(vars_no_dummy):
 axes[-1].axis('off')
 
 plt.tight_layout()
-plt.show()
-
-import seaborn as sns
+plt.savefig('figures/01_histograms.png', dpi=150, bbox_inches='tight')
+plt.close()
 
 
 # ----------------------------
@@ -85,7 +97,8 @@ axes[5].axis('off')
 
 plt.suptitle('Time Series: 1991Q1 – 2025Q4')
 plt.tight_layout()
-plt.show()
+plt.savefig('figures/02_time_series.png', dpi=150, bbox_inches='tight')
+plt.close()
 
 
 # ----------------------------
@@ -93,7 +106,7 @@ plt.show()
 # ----------------------------
 corr_matrix = df[X_vars].corr().round(3)
 
-print(corr_matrix)
+save_text(corr_matrix.to_string(), 'correlation_matrix.txt')
 
 plt.figure(figsize=(8, 6))
 sns.heatmap(corr_matrix, annot=True, fmt='.2f', cmap='RdBu_r',
@@ -101,7 +114,8 @@ sns.heatmap(corr_matrix, annot=True, fmt='.2f', cmap='RdBu_r',
             cbar_kws={'label': 'Correlation'})
 plt.title('Correlation Matrix')
 plt.tight_layout()
-plt.show()
+plt.savefig('figures/03_correlation_heatmap.png', dpi=150, bbox_inches='tight')
+plt.close()
 
 
 # ----------------------------
@@ -126,11 +140,14 @@ def flag(v):
     else: return 'OK (<5)'
 vif_data['Flag'] = vif_data['VIF'].apply(flag)
 
-print("=" * 55)
-print("VARIANCE INFLATION FACTORS")
-print("Threshold: VIF ≥ 5 flagged as concern")
-print("=" * 55)
-print(vif_data.to_string(index=False))
+vif_text = "\n".join([
+    "=" * 55,
+    "VARIANCE INFLATION FACTORS",
+    "Threshold: VIF ≥ 5 flagged as concern",
+    "=" * 55,
+    vif_data.to_string(index=False),
+])
+save_text(vif_text, 'vif_table.txt')
 
 
 # ----------------------------
@@ -142,7 +159,7 @@ y = df[Y_var_log]
 # y = df[Y_var]
 
 model = sm.OLS(y, X).fit()
-print(model.summary())
+save_text(str(model.summary()), 'model1_ols_summary.txt')
 
 # ----------------------------
 # 4. RESIDUAL PLOT
@@ -156,14 +173,16 @@ plt.axhline(0, linestyle='--')
 plt.xlabel('Fitted values')
 plt.ylabel('Residuals')
 plt.title('Residual Plot')
-plt.show()
+plt.savefig('figures/04_residual_plot.png', dpi=150, bbox_inches='tight')
+plt.close()
 
 # ----------------------------
 # 5. QQ PLOT
 # ----------------------------
 sm.qqplot(residuals, line='s')
 plt.title('QQ Plot')
-plt.show()
+plt.savefig('figures/05_qq_plot.png', dpi=150, bbox_inches='tight')
+plt.close()
 
 
 
@@ -177,34 +196,13 @@ model_log = sm.OLS(y, X).fit()
 
 # --- Breusch-Pagan test ---
 bp_stat, bp_p, bp_f, bp_fp = het_breuschpagan(model_log.resid, X)
-print("=" * 60)
-print("BREUSCH-PAGAN-GODFREY TEST")
-print("H0: homoscedasticity")
-print("=" * 60)
-print(f"  LM statistic:       {bp_stat:.4f}")
-print(f"  LM p-value:         {bp_p:.4f}")
-print(f"  F-statistic:        {bp_f:.4f}")
-print(f"  F p-value:          {bp_fp:.4f}")
-print(f"  Conclusion: {'REJECT H0 - heteroscedasticity present' if bp_p < 0.05 else 'DO NOT REJECT H0'}")
 
 # --- White test ---
 w_stat, w_p, w_f, w_fp = het_white(model_log.resid, X)
-print("\n" + "=" * 60)
-print("WHITE TEST")
-print("H0: homoscedasticity")
-print("=" * 60)
-print(f"  LM statistic:       {w_stat:.4f}")
-print(f"  LM p-value:         {w_p:.4f}")
-print(f"  F-statistic:        {w_f:.4f}")
-print(f"  F p-value:          {w_fp:.4f}")
-print(f"  Conclusion: {'REJECT H0 - heteroscedasticity present' if w_p < 0.05 else 'DO NOT REJECT H0'}")
 
 # --- Corrected model with HC3 robust standard errors ---
 model_log_robust = sm.OLS(y, X).fit(cov_type='HC3')
 
-print("\n" + "=" * 80)
-print("COMPARISON: CLASSICAL vs. HC3-ROBUST STANDARD ERRORS")
-print("=" * 80)
 comparison = pd.DataFrame({
     'Coefficient': model_log.params.round(4),
     'Classical SE': model_log.bse.round(4),
@@ -212,9 +210,35 @@ comparison = pd.DataFrame({
     'HC3 Robust SE': model_log_robust.bse.round(4),
     'HC3 Robust p': model_log_robust.pvalues.round(4),
 })
-# How much did SEs change?
 comparison['SE Change (%)'] = (100 * (model_log_robust.bse - model_log.bse) / model_log.bse).round(1)
-print(comparison.to_string())
+
+hetero_text = "\n".join([
+    "=" * 60,
+    "BREUSCH-PAGAN-GODFREY TEST",
+    "H0: homoscedasticity",
+    "=" * 60,
+    f"  LM statistic:       {bp_stat:.4f}",
+    f"  LM p-value:         {bp_p:.4f}",
+    f"  F-statistic:        {bp_f:.4f}",
+    f"  F p-value:          {bp_fp:.4f}",
+    f"  Conclusion: {'REJECT H0 - heteroscedasticity present' if bp_p < 0.05 else 'DO NOT REJECT H0'}",
+    "",
+    "=" * 60,
+    "WHITE TEST",
+    "H0: homoscedasticity",
+    "=" * 60,
+    f"  LM statistic:       {w_stat:.4f}",
+    f"  LM p-value:         {w_p:.4f}",
+    f"  F-statistic:        {w_f:.4f}",
+    f"  F p-value:          {w_fp:.4f}",
+    f"  Conclusion: {'REJECT H0 - heteroscedasticity present' if w_p < 0.05 else 'DO NOT REJECT H0'}",
+    "",
+    "=" * 80,
+    "COMPARISON: CLASSICAL vs. HC3-ROBUST STANDARD ERRORS",
+    "=" * 80,
+    comparison.to_string(),
+])
+save_text(hetero_text, 'heteroscedasticity_tests.txt')
 
 
 
@@ -224,12 +248,13 @@ print(comparison.to_string())
 # Fit with HC3 robust standard errors
 model_2 = sm.OLS(y, X).fit(cov_type='HC3')
 
-# Print the full regression output — statsmodels automatically uses HC3 throughout
-print("=" * 75)
-print("\nMODEL 2 — LOG-LIN, HC3-ROBUST STANDARD ERRORS")
-print("=" * 75)
-print(model_2.summary())
-
+model2_text = "\n".join([
+    "=" * 75,
+    "MODEL 2 — LOG-LIN, HC3-ROBUST STANDARD ERRORS",
+    "=" * 75,
+    str(model_2.summary()),
+])
+save_text(model2_text, 'model2_hc3_summary.txt')
 
 
 
@@ -245,24 +270,29 @@ model_log = sm.OLS(y, X).fit()  # classical fit for residual extraction
 
 # --- Durbin-Watson ---
 dw = durbin_watson(model_log.resid)
-print("=" * 60)
-print("DURBIN-WATSON TEST (H0: no 1st-order autocorrelation)")
-print("=" * 60)
-print(f"  DW statistic: {dw:.4f}")
-print(f"  Interpretation:")
-print(f"    DW ≈ 2:   no autocorrelation")
-print(f"    DW < 1.5: positive autocorrelation likely")
-print(f"    DW > 2.5: negative autocorrelation likely")
 
 # --- Breusch-Godfrey LM test (up to 4 lags = 1 year of quarters) ---
 bg_stat, bg_p, bg_f, bg_fp = acorr_breusch_godfrey(model_log, nlags=4)
-print("\n" + "=" * 60)
-print("BREUSCH-GODFREY LM TEST (H0: no autocorrelation up to lag 4)")
-print("=" * 60)
-print(f"  LM statistic:  {bg_stat:.4f}")
-print(f"  LM p-value:    {bg_p:.6f}")
-print(f"  F-statistic:   {bg_f:.4f}")
-print(f"  F p-value:     {bg_fp:.6f}")
+
+autocorr_text = "\n".join([
+    "=" * 60,
+    "DURBIN-WATSON TEST (H0: no 1st-order autocorrelation)",
+    "=" * 60,
+    f"  DW statistic: {dw:.4f}",
+    f"  Interpretation:",
+    f"    DW ≈ 2:   no autocorrelation",
+    f"    DW < 1.5: positive autocorrelation likely",
+    f"    DW > 2.5: negative autocorrelation likely",
+    "",
+    "=" * 60,
+    "BREUSCH-GODFREY LM TEST (H0: no autocorrelation up to lag 4)",
+    "=" * 60,
+    f"  LM statistic:  {bg_stat:.4f}",
+    f"  LM p-value:    {bg_p:.6f}",
+    f"  F-statistic:   {bg_f:.4f}",
+    f"  F p-value:     {bg_fp:.6f}",
+])
+save_text(autocorr_text, 'autocorrelation_tests.txt')
 
 # --- Residual time series plot ---
 fig, axes = plt.subplots(1, 2, figsize=(14, 4))
@@ -285,71 +315,72 @@ axes[1].set_xlabel('Residual at t-1')
 axes[1].set_ylabel('Residual at t')
 
 plt.tight_layout()
-plt.show()
+plt.savefig('figures/06_autocorrelation_diagnostics.png', dpi=150, bbox_inches='tight')
+plt.close()
 
 # --- Cochrane-Orcutt correction ---
-print("\n" + "=" * 60)
-print("COCHRANE-ORCUTT ITERATIVE PROCEDURE")
-print("=" * 60)
-
-# Step 1: Estimate rho from residuals
 rho_hat = model_log.resid.autocorr(lag=1)
-print(f"\n  Step 1: Estimated ρ from residuals:  ρ̂ = {rho_hat:.4f}")
+co_lines = [
+    "=" * 60,
+    "COCHRANE-ORCUTT ITERATIVE PROCEDURE",
+    "=" * 60,
+    f"\n  Step 1: Estimated ρ from residuals:  ρ̂ = {rho_hat:.4f}",
+]
 
 # Step 2: Quasi-difference all variables
-# y*_t = y_t - rho * y_{t-1}, drop the first row
 y_qd = y - rho_hat * y.shift(1)
 X_qd = X - rho_hat * X.shift(1)
 # Drop the first observation (which is NaN after shifting)
 y_qd = y_qd.dropna()
 X_qd = X_qd.dropna()
-# Replace the transformed constant with 1 (the transformation creates (1 - rho),
-# but we want the intercept in ORIGINAL units so we can interpret it cleanly)
-# Standard practice: run OLS on the transformed variables with the transformed constant
-print(f"\n  Step 2: Quasi-differenced data has {len(y_qd)} observations (one dropped)")
+co_lines.append(f"\n  Step 2: Quasi-differenced data has {len(y_qd)} observations (one dropped)")
 
 # Step 3: Re-run OLS on quasi-differenced data
 model_3 = sm.OLS(y_qd, X_qd).fit()
-print(f"\n  Step 3: OLS on quasi-differenced data complete")
+co_lines.append(f"\n  Step 3: OLS on quasi-differenced data complete")
 
-# Step 4: Iterate to convergence (one iteration is often enough, but let's do it properly)
+# Step 4: Iterate to convergence
 max_iter = 10
 tol = 1e-6
 for it in range(max_iter):
     rho_prev = rho_hat
-    # Compute residuals of CURRENT quasi-differenced model, in ORIGINAL scale
-    # The original-scale residual at time t is: y_t - X_t @ beta_current
     residuals_original = y - X @ model_3.params
     rho_hat = residuals_original.autocorr(lag=1)
 
-    # Re-quasi-difference with updated rho
     y_qd = (y - rho_hat * y.shift(1)).dropna()
     X_qd = (X - rho_hat * X.shift(1)).dropna()
     model_3 = sm.OLS(y_qd, X_qd).fit()
 
     if abs(rho_hat - rho_prev) < tol:
-        print(f"\n  Converged after {it+1} iterations. Final ρ̂ = {rho_hat:.4f}")
+        co_lines.append(f"\n  Converged after {it+1} iterations. Final ρ̂ = {rho_hat:.4f}")
         break
 else:
-    print(f"\n  Reached max {max_iter} iterations. Final ρ̂ = {rho_hat:.4f}")
+    co_lines.append(f"\n  Reached max {max_iter} iterations. Final ρ̂ = {rho_hat:.4f}")
 
 # --- Check whether autocorrelation is resolved in Model 3 residuals ---
 dw_after = durbin_watson(model_3.resid)
-print(f"\n  Model 3 Durbin-Watson statistic: {dw_after:.4f}")
+co_lines.append(f"\n  Model 3 Durbin-Watson statistic: {dw_after:.4f}")
+
+save_text("\n".join(co_lines), 'cochrane_orcutt.txt')
 
 # --- Side-by-side comparison: Model 2 (HC3) vs Model 3 (Cochrane-Orcutt) ---
 model_2 = sm.OLS(y, X).fit(cov_type='HC3')
 
-print("\n" + "=" * 95)
-print("MODEL 2 (HC3) vs MODEL 3 (Cochrane-Orcutt)")
-print("=" * 95)
-print(f"{'Variable':<15}{'M2 Coef':>10}{'M2 SE':>10}{'M2 p':>10}    {'M3 Coef':>10}{'M3 SE':>10}{'M3 p':>10}")
-print("-" * 95)
+comp_lines = [
+    "=" * 95,
+    "MODEL 2 (HC3) vs MODEL 3 (Cochrane-Orcutt)",
+    "=" * 95,
+    f"{'Variable':<15}{'M2 Coef':>10}{'M2 SE':>10}{'M2 p':>10}    {'M3 Coef':>10}{'M3 SE':>10}{'M3 p':>10}",
+    "-" * 95,
+]
 for v in X.columns:
     c2, se2, p2 = model_2.params[v], model_2.bse[v], model_2.pvalues[v]
     c3, se3, p3 = model_3.params[v], model_3.bse[v], model_3.pvalues[v]
-    print(f"{v:<15}{c2:>+10.4f}{se2:>10.4f}{p2:>10.4f}    {c3:>+10.4f}{se3:>10.4f}{p3:>10.4f}")
+    comp_lines.append(f"{v:<15}{c2:>+10.4f}{se2:>10.4f}{p2:>10.4f}    {c3:>+10.4f}{se3:>10.4f}{p3:>10.4f}")
 
-print(f"\n  DW Model 2: {durbin_watson(model_log.resid):.4f}   →   DW Model 3: {dw_after:.4f}")
-print(f"  R² Model 2: {model_log.rsquared:.4f}            →   R² Model 3: {model_3.rsquared:.4f}")
-print(f"  Note: Model 3 R² is on quasi-differenced data and not directly comparable to Model 2.")
+comp_lines.extend([
+    f"\n  DW Model 2: {durbin_watson(model_log.resid):.4f}   →   DW Model 3: {dw_after:.4f}",
+    f"  R² Model 2: {model_log.rsquared:.4f}            →   R² Model 3: {model_3.rsquared:.4f}",
+    f"  Note: Model 3 R² is on quasi-differenced data and not directly comparable to Model 2.",
+])
+save_text("\n".join(comp_lines), 'model_comparison.txt')

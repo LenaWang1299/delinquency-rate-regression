@@ -1,0 +1,16 @@
+============================================================
+DURBIN-WATSON TEST (H0: no 1st-order autocorrelation)
+============================================================
+  DW statistic: 0.4120
+  Interpretation:
+    DW ≈ 2:   no autocorrelation
+    DW < 1.5: positive autocorrelation likely
+    DW > 2.5: negative autocorrelation likely
+
+============================================================
+BREUSCH-GODFREY LM TEST (H0: no autocorrelation up to lag 4)
+============================================================
+  LM statistic:  98.6294
+  LM p-value:    0.000000
+  F-statistic:   76.8854
+  F p-value:     0.000000

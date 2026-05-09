@@ -1,0 +1,31 @@
+============================================================
+BREUSCH-PAGAN-GODFREY TEST
+H0: homoscedasticity
+============================================================
+  LM statistic:       48.0074
+  LM p-value:         0.0000
+  F-statistic:        11.5679
+  F p-value:          0.0000
+  Conclusion: REJECT H0 - heteroscedasticity present
+
+============================================================
+WHITE TEST
+H0: homoscedasticity
+============================================================
+  LM statistic:       80.1091
+  LM p-value:         0.0000
+  F-statistic:        6.4093
+  F p-value:          0.0000
+  Conclusion: REJECT H0 - heteroscedasticity present
+
+================================================================================
+COMPARISON: CLASSICAL vs. HC3-ROBUST STANDARD ERRORS
+================================================================================
+              Coefficient  Classical SE  Classical p  HC3 Robust SE  HC3 Robust p  SE Change (%)
+const              1.7739        0.1627       0.0000         0.2634        0.0000           61.9
+UNRATE             0.1362        0.0172       0.0000         0.0390        0.0005          126.5
+MORTGAGE30US      -0.2009        0.0145       0.0000         0.0161        0.0000           10.7
+HPI_Growth        -0.0509        0.0072       0.0000         0.0107        0.0000           47.9
+GDPGrowth          0.0044        0.0052       0.3981         0.0252        0.8625          389.5
+D_Crisis          -0.0422        0.0954       0.6588         0.1048        0.6868            9.7
+D_Covid           -0.7892        0.1179       0.0000         0.3070        0.0102          160.3

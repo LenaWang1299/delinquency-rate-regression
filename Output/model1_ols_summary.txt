@@ -1,0 +1,30 @@
+                            OLS Regression Results                            
+==============================================================================
+Dep. Variable:        log_Delinquency   R-squared:                       0.815
+Model:                            OLS   Adj. R-squared:                  0.806
+Method:                 Least Squares   F-statistic:                     97.49
+Date:                Sat, 09 May 2026   Prob (F-statistic):           3.12e-46
+Time:                        01:32:07   Log-Likelihood:                -8.8881
+No. Observations:                 140   AIC:                             31.78
+Df Residuals:                     133   BIC:                             52.37
+Df Model:                           6                                         
+Covariance Type:            nonrobust                                         
+================================================================================
+                   coef    std err          t      P>|t|      [0.025      0.975]
+--------------------------------------------------------------------------------
+const            1.7739      0.163     10.903      0.000       1.452       2.096
+UNRATE           0.1362      0.017      7.918      0.000       0.102       0.170
+MORTGAGE30US    -0.2009      0.015    -13.825      0.000      -0.230      -0.172
+HPI_Growth      -0.0509      0.007     -7.046      0.000      -0.065      -0.037
+GDPGrowth        0.0044      0.005      0.848      0.398      -0.006       0.015
+D_Crisis        -0.0422      0.095     -0.443      0.659      -0.231       0.147
+D_Covid         -0.7892      0.118     -6.692      0.000      -1.022      -0.556
+==============================================================================
+Omnibus:                        1.949   Durbin-Watson:                   0.412
+Prob(Omnibus):                  0.377   Jarque-Bera (JB):                1.547
+Skew:                          -0.243   Prob(JB):                        0.461
+Kurtosis:                       3.172   Cond. No.                         74.1
+==============================================================================
+
+Notes:
+[1] Standard Errors assume that the covariance matrix of the errors is correctly specified.

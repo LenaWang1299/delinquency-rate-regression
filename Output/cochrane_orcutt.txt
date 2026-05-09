@@ -1,0 +1,13 @@
+============================================================
+COCHRANE-ORCUTT ITERATIVE PROCEDURE
+============================================================
+
+  Step 1: Estimated ρ from residuals:  ρ̂ = 0.7903
+
+  Step 2: Quasi-differenced data has 139 observations (one dropped)
+
+  Step 3: OLS on quasi-differenced data complete
+
+  Converged after 4 iterations. Final ρ̂ = 0.9938
+
+  Model 3 Durbin-Watson statistic: 0.8238

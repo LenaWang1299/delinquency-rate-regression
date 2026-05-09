@@ -1,0 +1,11 @@
+=======================================================
+VARIANCE INFLATION FACTORS
+Threshold: VIF ≥ 5 flagged as concern
+=======================================================
+    Variable   VIF    Flag
+      UNRATE 1.817 OK (<5)
+MORTGAGE30US 1.247 OK (<5)
+  HPI_Growth 2.354 OK (<5)
+   GDPGrowth 1.043 OK (<5)
+    D_Crisis 1.640 OK (<5)
+     D_Covid 1.322 OK (<5)
