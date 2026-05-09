@@ -7,7 +7,7 @@ Dep. Variable:        log_Delinquency   R-squared:                       0.815
 Model:                            OLS   Adj. R-squared:                  0.806
 Method:                 Least Squares   F-statistic:                     212.0
 Date:                Sat, 09 May 2026   Prob (F-statistic):           1.55e-65
-Time:                        01:32:07   Log-Likelihood:                -8.8881
+Time:                        04:44:02   Log-Likelihood:                -8.8881
 No. Observations:                 140   AIC:                             31.78
 Df Residuals:                     133   BIC:                             52.37
 Df Model:                           6                                         

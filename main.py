@@ -257,6 +257,52 @@ model2_text = "\n".join([
 save_text(model2_text, 'model2_hc3_summary.txt')
 
 
+# ----------------------------
+# MODEL 3 — LOG-LIN WITH NEWEY-WEST HAC STANDARD ERRORS
+# ----------------------------
+# Lag length for quarterly data: L = floor(4 * (n/100)^(2/9))
+import math
+n_obs = len(df)
+nw_lags = math.floor(4 * (n_obs / 100) ** (2 / 9))
+
+model_3_nw = sm.OLS(y, X).fit(cov_type='HAC', cov_kwds={'maxlags': nw_lags})
+
+model3_text = "\n".join([
+    "=" * 75,
+    f"MODEL 3 — LOG-LIN, NEWEY-WEST HAC STANDARD ERRORS (maxlags={nw_lags})",
+    "=" * 75,
+    str(model_3_nw.summary()),
+])
+save_text(model3_text, 'model3_nw_summary.txt')
+
+# ----------------------------
+# SIDE-BY-SIDE: MODEL 1 vs MODEL 2 vs MODEL 3
+# ----------------------------
+model_1 = sm.OLS(y, X).fit()
+model_2 = sm.OLS(y, X).fit(cov_type='HC3')
+
+comparison_text = "\n".join([
+    "=" * 110,
+    "MODEL 1 (Classical) vs MODEL 2 (HC3) vs MODEL 3 (Newey-West HAC)",
+    "=" * 110,
+    f"{'Variable':<16}{'M1 coef':>10}{'M1 SE':>10}{'M1 p':>10}   "
+    f"{'M2 coef':>10}{'M2 SE':>10}{'M2 p':>10}   "
+    f"{'M3 coef':>10}{'M3 SE':>10}{'M3 p':>10}",
+    "-" * 110,
+])
+for v in X.columns:
+    c = model_1.params[v]
+    se1, p1 = model_1.bse[v], model_1.pvalues[v]
+    se2, p2 = model_2.bse[v], model_2.pvalues[v]
+    se3, p3 = model_3_nw.bse[v], model_3_nw.pvalues[v]
+    comparison_text = comparison_text + "\n" + \
+        f"{v:<16}{c:>+10.4f}{se1:>10.4f}{p1:>10.4f}   " \
+        f"{c:>+10.4f}{se2:>10.4f}{p2:>10.4f}   " \
+        f"{c:>+10.4f}{se3:>10.4f}{p3:>10.4f}"
+
+comparison_text += "\n\n  Note: M1, M2, M3 have identical coefficients. Only SEs differ."
+save_text(comparison_text, 'model_se_comparison.txt')
+
 
 
 # ----------------------------
@@ -384,3 +430,163 @@ comp_lines.extend([
     f"  Note: Model 3 R² is on quasi-differenced data and not directly comparable to Model 2.",
 ])
 save_text("\n".join(comp_lines), 'model_comparison.txt')
+
+
+
+# ----------------------------
+# STAGE 9 — JOINT F-TESTS (Newey-West HAC)
+# ----------------------------
+
+# Primary model for all F-tests
+import math
+n_obs = len(df)
+nw_lags = math.floor(4 * (n_obs / 100) ** (2 / 9))
+model_primary = sm.OLS(y, X).fit(cov_type='HAC', cov_kwds={'maxlags': nw_lags})
+
+# --- F-Test 1: Dummies jointly significant? ---
+f1 = model_primary.f_test("D_Crisis = 0, D_Covid = 0")
+
+# --- F-Test 2: Macro variables jointly significant? ---
+f2 = model_primary.f_test("UNRATE = 0, MORTGAGE30US = 0, HPI_Growth = 0, GDPGrowth = 0")
+
+# --- F-Test 3: Can we drop GDPGrowth and D_Crisis? ---
+f3 = model_primary.f_test("GDPGrowth = 0, D_Crisis = 0")
+
+ftests_text = "\n".join([
+    "=" * 70,
+    "STAGE 9 — JOINT F-TESTS (Newey-West HAC, primary model)",
+    "=" * 70,
+    "",
+    "F-TEST 1: Are the dummy variables jointly significant?",
+    "H0: beta(D_Crisis) = beta(D_Covid) = 0",
+    f"  F-statistic:  {float(f1.fvalue):.4f}",
+    f"  p-value:      {float(f1.pvalue):.6f}",
+    f"  df numerator: {int(f1.df_num)}",
+    f"  Conclusion:   {'REJECT H0 — dummies jointly significant' if float(f1.pvalue) < 0.05 else 'FAIL TO REJECT H0'}",
+    "",
+    "F-TEST 2: Are the macro variables jointly significant?",
+    "H0: beta(UNRATE) = beta(MORTGAGE30US) = beta(HPI_Growth) = beta(GDPGrowth) = 0",
+    f"  F-statistic:  {float(f2.fvalue):.4f}",
+    f"  p-value:      {float(f2.pvalue):.6f}",
+    f"  df numerator: {int(f2.df_num)}",
+    f"  Conclusion:   {'REJECT H0 — macro variables jointly significant' if float(f2.pvalue) < 0.05 else 'FAIL TO REJECT H0'}",
+    "",
+    "F-TEST 3: Can we drop GDPGrowth and D_Crisis?",
+    "H0: beta(GDPGrowth) = beta(D_Crisis) = 0",
+    f"  F-statistic:  {float(f3.fvalue):.4f}",
+    f"  p-value:      {float(f3.pvalue):.6f}",
+    f"  df numerator: {int(f3.df_num)}",
+    f"  Conclusion:   {'REJECT H0 — cannot drop both' if float(f3.pvalue) < 0.05 else 'FAIL TO REJECT H0 — dropping GDPGrowth and D_Crisis is supported'}",
+])
+save_text(ftests_text, 'stage9_ftests.txt')
+
+
+
+# ----------------------------
+# STAGE 10 — FINAL RESULTS TABLE
+# ----------------------------
+import math
+
+# Define specifications
+regressors_full = ['UNRATE', 'MORTGAGE30US', 'HPI_Growth', 'GDPGrowth', 'D_Crisis', 'D_Covid']
+regressors_trimmed = ['UNRATE', 'MORTGAGE30US', 'HPI_Growth', 'D_Covid']
+
+# Newey-West lag length
+n_obs = len(df)
+nw_lags = math.floor(4 * (n_obs / 100) ** (2 / 9))
+
+# Fit all four models
+X_full = sm.add_constant(df[regressors_full])
+X_trim = sm.add_constant(df[regressors_trimmed])
+y_log = df['log_Delinquency']
+y_lin = df['Delinquency']
+
+m1_linear   = sm.OLS(y_lin, X_full).fit()                                                # Model 1: linear DV
+m2_classic  = sm.OLS(y_log, X_full).fit()                                                # Model 2: log-lin classical
+m3_nw       = sm.OLS(y_log, X_full).fit(cov_type='HAC', cov_kwds={'maxlags': nw_lags})   # Model 3: log-lin NW
+m4_trim     = sm.OLS(y_log, X_trim).fit(cov_type='HAC', cov_kwds={'maxlags': nw_lags})   # Model 4: trimmed NW
+
+# Helper: format coefficient with asterisks and SE
+def fmt(coef, se, p):
+    if pd.isna(coef): return ''
+    stars = '***' if p < 0.01 else ('**' if p < 0.05 else ('*' if p < 0.10 else ''))
+    return f"{coef:+.4f}{stars}\n  ({se:.4f})"
+
+# All variables that appear in any model (in order)
+all_vars = ['const'] + regressors_full
+
+# Build table rows
+table_lines = [
+    "=" * 110,
+    f"{'':<18}{'Model 1':>20}{'Model 2':>20}{'Model 3':>20}{'Model 4':>20}",
+    f"{'':<18}{'(Linear)':>20}{'(Log-Lin Classical)':>20}{'(Log-Lin NW)':>20}{'(Log-Lin Trimmed)':>20}",
+    "-" * 110,
+]
+
+for v in all_vars:
+    # M1 always has it, M2/M3 always have it (full), M4 only if in trimmed
+    c1 = fmt(m1_linear.params.get(v), m1_linear.bse.get(v), m1_linear.pvalues.get(v))
+    c2 = fmt(m2_classic.params.get(v), m2_classic.bse.get(v), m2_classic.pvalues.get(v))
+    c3 = fmt(m3_nw.params.get(v), m3_nw.bse.get(v), m3_nw.pvalues.get(v))
+    if v in m4_trim.params.index:
+        c4 = fmt(m4_trim.params.get(v), m4_trim.bse.get(v), m4_trim.pvalues.get(v))
+    else:
+        c4 = "—"
+    # Each variable takes 2 lines (coef + SE)
+    parts1 = c1.split('\n') if c1 else ['', '']
+    parts2 = c2.split('\n') if c2 else ['', '']
+    parts3 = c3.split('\n') if c3 else ['', '']
+    parts4 = c4.split('\n') if c4 != "—" else ['—', '']
+    while len(parts1) < 2: parts1.append('')
+    while len(parts2) < 2: parts2.append('')
+    while len(parts3) < 2: parts3.append('')
+    while len(parts4) < 2: parts4.append('')
+    table_lines.append(f"{v:<18}{parts1[0]:>20}{parts2[0]:>20}{parts3[0]:>20}{parts4[0]:>20}")
+    table_lines.append(f"{'':<18}{parts1[1]:>20}{parts2[1]:>20}{parts3[1]:>20}{parts4[1]:>20}")
+
+# Helper for robust F-statistic of overall model significance
+def overall_f(model, regressors):
+    joint = ", ".join([f"{v} = 0" for v in regressors])
+    f = model.f_test(joint)
+    return float(f.fvalue), float(f.pvalue)
+
+# Compute overall F for each model
+f1_stat, f1_p = m1_linear.fvalue, m1_linear.f_pvalue       # Classical OLS, classical F
+f2_stat, f2_p = m2_classic.fvalue, m2_classic.f_pvalue     # Classical OLS, classical F
+f3_stat, f3_p = overall_f(m3_nw, regressors_full)          # Newey-West Wald F
+f4_stat, f4_p = overall_f(m4_trim, regressors_trimmed)     # Newey-West Wald F
+
+# Format F-stat with stars based on its p-value
+def fmt_f(f, p):
+    stars = '***' if p < 0.01 else ('**' if p < 0.05 else ('*' if p < 0.10 else ''))
+    return f"{f:.2f}{stars}"
+
+# Bottom rows: summary statistics
+table_lines.extend([
+    "-" * 110,
+    f"{'n':<18}{m1_linear.nobs:>20.0f}{m2_classic.nobs:>20.0f}{m3_nw.nobs:>20.0f}{m4_trim.nobs:>20.0f}",
+    f"{'R-squared':<18}{m1_linear.rsquared:>20.4f}{m2_classic.rsquared:>20.4f}{m3_nw.rsquared:>20.4f}{m4_trim.rsquared:>20.4f}",
+    f"{'Adj. R-squared':<18}{m1_linear.rsquared_adj:>20.4f}{m2_classic.rsquared_adj:>20.4f}{m3_nw.rsquared_adj:>20.4f}{m4_trim.rsquared_adj:>20.4f}",
+    f"{'F-statistic':<18}"
+    f"{fmt_f(f1_stat, f1_p):>20}"
+    f"{fmt_f(f2_stat, f2_p):>20}"
+    f"{fmt_f(f3_stat, f3_p):>20}"
+    f"{fmt_f(f4_stat, f4_p):>20}",
+    f"{'Durbin-Watson':<18}"
+    f"{durbin_watson(m1_linear.resid):>20.4f}"
+    f"{durbin_watson(m2_classic.resid):>20.4f}"
+    f"{durbin_watson(m3_nw.resid):>20.4f}"
+    f"{durbin_watson(m4_trim.resid):>20.4f}",
+    "-" * 110,
+    "Notes:",
+    "  Coefficients with standard errors in parentheses.",
+    "  Significance: *** p<0.01, ** p<0.05, * p<0.10.",
+    "  Model 1 dependent variable: Delinquency (level).",
+    "  Models 2-4 dependent variable: log(Delinquency).",
+    "  R-squared not directly comparable across linear (Model 1) and log-lin (Models 2-4).",
+    f"  Model 3 and Model 4 use Newey-West HAC standard errors with {nw_lags} lags.",
+    "  Model 4 excludes GDPGrowth and D_Crisis based on joint F-test (F = 0.43, p = 0.649).",
+    "=" * 110,
+])
+
+save_text("\n".join(table_lines), 'final_results_table.txt')

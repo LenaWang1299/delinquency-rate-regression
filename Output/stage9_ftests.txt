@@ -1,0 +1,24 @@
+======================================================================
+STAGE 9 — JOINT F-TESTS (Newey-West HAC, primary model)
+======================================================================
+
+F-TEST 1: Are the dummy variables jointly significant?
+H0: beta(D_Crisis) = beta(D_Covid) = 0
+  F-statistic:  9.2624
+  p-value:      0.000171
+  df numerator: 2
+  Conclusion:   REJECT H0 — dummies jointly significant
+
+F-TEST 2: Are the macro variables jointly significant?
+H0: beta(UNRATE) = beta(MORTGAGE30US) = beta(HPI_Growth) = beta(GDPGrowth) = 0
+  F-statistic:  31.3312
+  p-value:      0.000000
+  df numerator: 4
+  Conclusion:   REJECT H0 — macro variables jointly significant
+
+F-TEST 3: Can we drop GDPGrowth and D_Crisis?
+H0: beta(GDPGrowth) = beta(D_Crisis) = 0
+  F-statistic:  0.4340
+  p-value:      0.648829
+  df numerator: 2
+  Conclusion:   FAIL TO REJECT H0 — dropping GDPGrowth and D_Crisis is supported
