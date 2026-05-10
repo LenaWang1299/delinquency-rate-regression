@@ -60,6 +60,9 @@ def save_model_summary(model, label, filename):
 # DATA LOADING AND PREPARATION
 # Loads the raw Excel data, computes the log-transformed dependent
 # variable, and defines the variable lists used across all sections.
+#
+# Outputs:
+#   output/summary_statistics.txt — descriptive stats for all analysis variables
 # ============================================================
 df = pd.read_excel('data/Econ318_RawData_Paper.xlsx')
 df['log_Delinquency'] = np.log(df['Delinquency'])
@@ -68,6 +71,21 @@ Y_var = 'Delinquency'           # levels DV (Model 1)
 Y_var_log = 'log_Delinquency'   # log DV (Models 2-4)
 X_vars = ['UNRATE', 'MORTGAGE30US', 'HPI_Growth', 'GDPGrowth', 'D_Crisis', 'D_Covid']
 vars_no_dummy = [Y_var] + ['UNRATE', 'MORTGAGE30US', 'HPI_Growth', 'GDPGrowth']
+
+# Summary statistics for all analysis variables
+summary_vars = ['Delinquency', 'log_Delinquency', 'UNRATE', 'MORTGAGE30US',
+                'HPI_Growth', 'GDPGrowth', 'D_Crisis', 'D_Covid']
+summary_stats = df[summary_vars].describe(percentiles=[0.25, 0.5, 0.75]).T
+summary_stats = summary_stats[['count', 'mean', 'std', 'min', '25%', '50%', '75%', 'max']]
+summary_stats.columns = ['N', 'Mean', 'Std Dev', 'Min', 'P25', 'Median', 'P75', 'Max']
+summary_stats = summary_stats.round(3)
+summary_text = "\n".join([
+    "=" * 75,
+    "SUMMARY STATISTICS",
+    "=" * 75,
+    summary_stats.to_string(),
+])
+save_text(summary_text, 'summary_statistics.txt')
 
 
 # ============================================================
