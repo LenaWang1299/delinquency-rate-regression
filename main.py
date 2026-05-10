@@ -1,75 +1,131 @@
-# Imports
+# ============================================================
+# IMPORTS
+# ============================================================
 import os
+import math
 import pandas as pd
 import numpy as np
 import matplotlib.pyplot as plt
 import statsmodels.api as sm
 import seaborn as sns
+from statsmodels.stats.outliers_influence import variance_inflation_factor
+from statsmodels.stats.diagnostic import het_breuschpagan, het_white, acorr_breusch_godfrey
+from statsmodels.stats.stattools import durbin_watson
 
-# Create output directories
+
+# ============================================================
+# CONFIG
+# Sets up output directories and defines shared helper functions
+# used throughout the script for saving text files and formatting
+# model results.
+# ============================================================
 os.makedirs('figures', exist_ok=True)
 os.makedirs('output', exist_ok=True)
 
 def save_text(content, filename):
+    # Writes content to output/<filename> and prints it to console.
     path = os.path.join('output', filename)
     with open(path, 'w') as f:
         f.write(content)
     print(content)
 
-# Load data
+def significance_stars(p):
+    # Returns significance stars based on p-value thresholds.
+    if p < 0.01: return '***'
+    if p < 0.05: return '**'
+    if p < 0.10: return '*'
+    return ''
+
+def format_coef(coef, se, p):
+    # Returns a two-line string: "coef*** \n  (se)" for the final results table.
+    if pd.isna(coef): return ''
+    return f"{coef:+.4f}{significance_stars(p)}\n  ({se:.4f})"
+
+def compute_nw_lags(n):
+    # Newey-West lag length for quarterly data: L = floor(4 * (n/100)^(2/9))
+    return math.floor(4 * (n / 100) ** (2 / 9))
+
+def save_model_summary(model, label, filename):
+    # Writes a labeled model summary block to output/<filename>.
+    content = "\n".join([
+        "=" * 75,
+        label,
+        "=" * 75,
+        str(model.summary()),
+    ])
+    save_text(content, filename)
+
+
+# ============================================================
+# DATA LOADING AND PREPARATION
+# Loads the raw Excel data, computes the log-transformed dependent
+# variable, and defines the variable lists used across all sections.
+# ============================================================
 df = pd.read_excel('data/Econ318_RawData_Paper.xlsx')
-
 df['log_Delinquency'] = np.log(df['Delinquency'])
-df['log_UNRATE'] = np.log(df['UNRATE'])
-df['log_MORTGAGE30US'] = np.log(df['MORTGAGE30US'])
 
-# ----------------------------
-# 1. SCATTER PLOT (X vs Y)
-# ----------------------------
-# Define variables
-Y_var = 'Delinquency'
-X_vars = ['UNRATE', 'MORTGAGE30US', 'HPI_Growth', 'GDPGrowth','D_Crisis', 'D_Covid']
-
-Y_var_log = 'log_Delinquency'
-
-
-# for var in X_vars:
-#     plt.figure()
-#     plt.scatter(df[var], df[Y_var])
-#     plt.xlabel(var)
-#     plt.ylabel(Y_var)
-#     plt.title(f'{Y_var} vs {var}')
-#     plt.savefig(f'figures/scatter_{var}.png', dpi=150, bbox_inches='tight')
-#     plt.close()
-#
-# ----------------------------
-# 2. HISTOGRAM (lin-lin model)
-# ----------------------------
-# Combine Y and X variables
+Y_var = 'Delinquency'           # levels DV (Model 1)
+Y_var_log = 'log_Delinquency'   # log DV (Models 2-4)
+X_vars = ['UNRATE', 'MORTGAGE30US', 'HPI_Growth', 'GDPGrowth', 'D_Crisis', 'D_Covid']
 vars_no_dummy = [Y_var] + ['UNRATE', 'MORTGAGE30US', 'HPI_Growth', 'GDPGrowth']
 
-# Create subplots
-fig, axes = plt.subplots(2, 3, figsize=(12, 6))
-axes = axes.flatten()
 
-for i, var in enumerate(vars_no_dummy):
+# ============================================================
+# EXPLORATORY VISUALIZATIONS
+# Produces three exploratory figures to inspect distributions,
+# time-series patterns, and pairwise correlations among variables.
+#
+# Outputs:
+#   figures/00_scatter_plots.png        — 2x3 grid of X vs Delinquency scatter plots
+#   figures/01_dv_histogram_comparison.png — levels vs log DV histograms (paper figure)
+#   figures/01_histograms.png           — 2x2 histograms of explanatory variables only
+#   figures/02_time_series.png          — time series with crisis/covid shading
+#   figures/03_correlation_heatmap.png  — heatmap of X-variable correlations
+#   output/correlation_matrix.txt       — correlation matrix (numeric)
+# ============================================================
+
+# --- Scatter plots: all six X variables vs Delinquency in a 2x3 grid ---
+fig, axes = plt.subplots(2, 3, figsize=(12, 8))
+axes = axes.flatten()
+for i, var in enumerate(X_vars):
+    axes[i].scatter(df[var], df[Y_var])
+    axes[i].set_title(f'{var} vs {Y_var}')
+    axes[i].set_xlabel(var)
+    axes[i].set_ylabel(Y_var)
+plt.tight_layout()
+plt.savefig('figures/00_scatter_plots.png', dpi=150, bbox_inches='tight')
+plt.close()
+
+# --- Dependent variable comparison: raw vs log transformation (paper figure) ---
+# Justifies the log transformation by comparing the two DV distributions.
+fig, axes = plt.subplots(1, 2, figsize=(11, 4))
+axes[0].hist(df['Delinquency'], bins=40)
+axes[0].set_title('Delinquency (Raw)')
+axes[0].set_xlabel('Delinquency Rate (%)')
+axes[0].set_ylabel('Frequency')
+axes[1].hist(df['log_Delinquency'], bins=40)
+axes[1].set_title('log(Delinquency)')
+axes[1].set_xlabel('log(Delinquency Rate)')
+axes[1].set_ylabel('Frequency')
+plt.tight_layout()
+plt.savefig('figures/01_dv_histogram_comparison.png', dpi=150, bbox_inches='tight')
+plt.close()
+
+# --- Histograms of explanatory variables (documentation, not in paper) ---
+# Uses continuous_X_vars (excludes dummies and the DV) for a clean 2x2 grid.
+continuous_X_vars = ['UNRATE', 'MORTGAGE30US', 'HPI_Growth', 'GDPGrowth']
+fig, axes = plt.subplots(2, 2, figsize=(10, 6))
+axes = axes.flatten()
+for i, var in enumerate(continuous_X_vars):
     axes[i].hist(df[var], bins=40)
     axes[i].set_title(f'{var}')
     axes[i].set_xlabel(var)
     axes[i].set_ylabel('Frequency')
-
-# Remove extra empty subplot
-axes[-1].axis('off')
-
 plt.tight_layout()
 plt.savefig('figures/01_histograms.png', dpi=150, bbox_inches='tight')
 plt.close()
 
-
-# ----------------------------
-# TIME SERIES: 5 non-dummy variables, separate subplots
-# ----------------------------
-
+# --- Time series ---
 units = {
     'Delinquency':  'Percent',
     'UNRATE':       'Percent',
@@ -78,7 +134,6 @@ units = {
     'GDPGrowth':    'Annualized %',
 }
 
-# Define the shaded windows
 crisis_start = pd.Timestamp('2007-07-01')
 crisis_end   = pd.Timestamp('2010-12-31')
 covid_start  = pd.Timestamp('2020-01-01')
@@ -86,54 +141,46 @@ covid_end    = pd.Timestamp('2021-09-30')
 
 fig, axes = plt.subplots(3, 2, figsize=(13, 10))
 axes = axes.flatten()
-
 for i, var in enumerate(vars_no_dummy):
     axes[i].plot(df['observation_date'], df[var])
-    axes[i].axvspan(crisis_start, crisis_end, alpha=0.15, color='red', label='Financial Crisis')
-    axes[i].axvspan(covid_start, covid_end, alpha=0.15, color='blue', label='COVID period')
-
-# Hide the unused 6th subplot
+    axes[i].axvspan(crisis_start, crisis_end, alpha=0.6)   # 2007-2010 financial crisis
+    axes[i].axvspan(covid_start, covid_end, alpha=0.6)     # 2020-2021 COVID period
 axes[5].axis('off')
-
 plt.suptitle('Time Series: 1991Q1 – 2025Q4')
 plt.tight_layout()
 plt.savefig('figures/02_time_series.png', dpi=150, bbox_inches='tight')
 plt.close()
 
-
-# ----------------------------
-# CORRELATION MATRIX HEATMAP
-# ----------------------------
+# --- Correlation matrix ---
 corr_matrix = df[X_vars].corr().round(3)
-
 save_text(corr_matrix.to_string(), 'correlation_matrix.txt')
 
 plt.figure(figsize=(8, 6))
 sns.heatmap(corr_matrix, annot=True, fmt='.2f', cmap='RdBu_r',
-            vmin=-1, vmax=1, center=0, square=True,
-            cbar_kws={'label': 'Correlation'})
+            vmin=-1, vmax=1, center=0, square=True)
 plt.title('Correlation Matrix')
 plt.tight_layout()
 plt.savefig('figures/03_correlation_heatmap.png', dpi=150, bbox_inches='tight')
 plt.close()
 
 
-# ----------------------------
-# VARIANCE INFLATION FACTORS (VIF)
-# ----------------------------
-from statsmodels.stats.outliers_influence import variance_inflation_factor
+# ============================================================
+# DIAGNOSTICS — VIF
+# Checks for multicollinearity among regressors by computing the
+# Variance Inflation Factor for each X variable. VIF >= 5 is
+# flagged as a concern (user-defined threshold).
+#
+# Outputs:
+#   output/vif_table.txt — VIF values and severity flags per variable
+# ============================================================
+X_vif = sm.add_constant(df[X_vars])
 
-X_vif = df[X_vars]
-X_vif = sm.add_constant(X_vif)
-
-# Compute VIF for each regressor (skip the constant at index 0)
 vif_data = pd.DataFrame({
     'Variable': X_vif.columns[1:],
     'VIF': [variance_inflation_factor(X_vif.values, i) for i in range(1, X_vif.shape[1])]
 })
 vif_data['VIF'] = vif_data['VIF'].round(3)
 
-# Flag severity — user's threshold = 5
 def flag(v):
     if v >= 10: return 'SEVERE (≥10)'
     elif v >= 5: return 'SEVERE (≥5, user threshold)'
@@ -150,67 +197,166 @@ vif_text = "\n".join([
 save_text(vif_text, 'vif_table.txt')
 
 
-# ----------------------------
-# 3. LINEAR REGRESSION
-# ----------------------------
-X = df[X_vars]
-X = sm.add_constant(X)
+# ============================================================
+# MODEL FITTING
+# Fits all six regression models used in the paper. Each model is
+# stored in a named variable and reused throughout the remaining
+# sections — no model is re-fit later.
+#
+# Models:
+#   model_linear  — OLS, levels DV, full regressors (Model 1)
+#   model_ols     — OLS, log DV, classical SEs (Model 2 baseline)
+#   model_hc3     — OLS, log DV, HC3 heteroscedasticity-robust SEs
+#   model_nw      — OLS, log DV, Newey-West HAC SEs, full regressors (Model 3)
+#   model_co      — Cochrane-Orcutt GLS, log DV, corrects autocorrelation
+#   model_nw_trim — OLS, log DV, Newey-West HAC SEs, trimmed regressors (Model 4)
+# ============================================================
+X = sm.add_constant(df[X_vars])
 y = df[Y_var_log]
-# y = df[Y_var]
+nw_lags = compute_nw_lags(len(df))   # lag length for all Newey-West models
 
-model = sm.OLS(y, X).fit()
-save_text(str(model.summary()), 'model1_ols_summary.txt')
+regressors_trimmed = ['UNRATE', 'MORTGAGE30US', 'HPI_Growth', 'D_Covid']
+X_trim = sm.add_constant(df[regressors_trimmed])
 
-# ----------------------------
-# 4. RESIDUAL PLOT
-# ----------------------------
-residuals = model.resid
-fitted = model.fittedvalues
+model_linear = sm.OLS(df[Y_var], X).fit()
+model_ols    = sm.OLS(y, X).fit()
+model_hc3    = sm.OLS(y, X).fit(cov_type='HC3')
+model_nw     = sm.OLS(y, X).fit(cov_type='HAC', cov_kwds={'maxlags': nw_lags})
 
-plt.figure()
-plt.scatter(fitted, residuals)
-plt.axhline(0, linestyle='--')
-plt.xlabel('Fitted values')
-plt.ylabel('Residuals')
-plt.title('Residual Plot')
-plt.savefig('figures/04_residual_plot.png', dpi=150, bbox_inches='tight')
+# Cochrane-Orcutt: iteratively estimates rho, quasi-differences the data,
+# and re-fits OLS until rho converges. Corrects for AR(1) autocorrelation.
+rho_hat = model_ols.resid.autocorr(lag=1)
+co_lines = [
+    "=" * 60,
+    "COCHRANE-ORCUTT ITERATIVE PROCEDURE",
+    "=" * 60,
+    f"\n  Step 1: Estimated ρ from residuals:  ρ̂ = {rho_hat:.4f}",
+]
+y_qd = (y - rho_hat * y.shift(1)).dropna()
+X_qd = (X - rho_hat * X.shift(1)).dropna()
+co_lines.append(f"\n  Step 2: Quasi-differenced data has {len(y_qd)} observations (one dropped)")
+model_co = sm.OLS(y_qd, X_qd).fit()
+co_lines.append(f"\n  Step 3: OLS on quasi-differenced data complete")
+
+max_iter = 10
+tol = 1e-6
+for it in range(max_iter):
+    rho_prev = rho_hat
+    residuals_original = y - X @ model_co.params
+    rho_hat = residuals_original.autocorr(lag=1)
+    y_qd = (y - rho_hat * y.shift(1)).dropna()
+    X_qd = (X - rho_hat * X.shift(1)).dropna()
+    model_co = sm.OLS(y_qd, X_qd).fit()
+    if abs(rho_hat - rho_prev) < tol:
+        co_lines.append(f"\n  Converged after {it+1} iterations. Final ρ̂ = {rho_hat:.4f}")
+        break
+else:
+    co_lines.append(f"\n  Reached max {max_iter} iterations. Final ρ̂ = {rho_hat:.4f}")
+
+model_nw_trim = sm.OLS(y, X_trim).fit(cov_type='HAC', cov_kwds={'maxlags': nw_lags})
+
+model4_text = "\n".join([
+    "=" * 75,
+    f"MODEL 4 — LOG-LIN, NEWEY-WEST HAC, TRIMMED (maxlags={nw_lags})",
+    "Excludes GDPGrowth and D_Crisis based on joint F-test (F = 0.434, p = 0.649)",
+    "=" * 75,
+    str(model_nw_trim.summary()),
+])
+save_text(model4_text, 'model4_nw_trim_summary.txt')
+
+
+# ============================================================
+# RESIDUAL DIAGNOSTICS
+# Checks the residuals of the baseline OLS model (model_ols) for
+# violations of classical assumptions: non-zero mean, non-normality,
+# and autocorrelation patterns.
+#
+# Outputs:
+#   figures/04_residual_comparison.png       — residuals vs fitted, linear vs log-lin
+#   figures/05_qq_comparison.png             — QQ plots, linear vs log-lin
+#   figures/06_autocorrelation_diagnostics.png — residuals over time +
+#                                               residual vs lagged residual
+# ============================================================
+
+# Residuals vs fitted: side-by-side comparison of linear and log-linear specs.
+# Checks for heteroscedasticity and non-linearity in each specification.
+fig, axes = plt.subplots(1, 2, figsize=(13, 5))
+axes[0].scatter(model_linear.fittedvalues, model_linear.resid)
+axes[0].axhline(0, linestyle='--')
+axes[0].set_title('Linear Specification: Residuals vs Fitted')
+axes[0].set_xlabel('Fitted Delinquency')
+axes[0].set_ylabel('Residuals')
+axes[1].scatter(model_ols.fittedvalues, model_ols.resid)
+axes[1].axhline(0, linestyle='--')
+axes[1].set_title('Log-Linear Specification: Residuals vs Fitted')
+axes[1].set_xlabel('Fitted log(Delinquency)')
+axes[1].set_ylabel('Residuals')
+plt.tight_layout()
+plt.savefig('figures/04_residual_comparison.png', dpi=150, bbox_inches='tight')
 plt.close()
 
-# ----------------------------
-# 5. QQ PLOT
-# ----------------------------
-sm.qqplot(residuals, line='s')
-plt.title('QQ Plot')
-plt.savefig('figures/05_qq_plot.png', dpi=150, bbox_inches='tight')
+# QQ plots: checks whether residuals follow a normal distribution in each spec.
+fig, axes = plt.subplots(1, 2, figsize=(13, 5))
+sm.qqplot(model_linear.resid, line='s', ax=axes[0])
+axes[0].set_title('Linear Specification: QQ Plot')
+sm.qqplot(model_ols.resid, line='s', ax=axes[1])
+axes[1].set_title('Log-Linear Specification: QQ Plot')
+plt.tight_layout()
+plt.savefig('figures/05_qq_comparison.png', dpi=150, bbox_inches='tight')
+plt.close()
+
+# Left panel: residuals over time — visual check for autocorrelation
+# Right panel: residual vs lagged residual — slope ≈ AR(1) coefficient
+fig, axes = plt.subplots(1, 2, figsize=(14, 4))
+axes[0].plot(df['observation_date'], model_ols.resid)
+axes[0].axhline(0, linestyle='--')
+axes[0].set_title('Residuals Over Time')
+axes[0].set_xlabel('Date')
+axes[0].set_ylabel('Residual')
+axes[0].grid(True)
+
+resid_lag = model_ols.resid.shift(1)
+axes[1].scatter(resid_lag, model_ols.resid, alpha=0.4)
+axes[1].axhline(0, linestyle=':')
+axes[1].axvline(0, linestyle=':')
+rho = model_ols.resid.autocorr(lag=1)
+axes[1].set_title(f'Residual vs. Lagged Residual (ρ̂ = {rho:.3f})')
+axes[1].set_xlabel('Residual at t-1')
+axes[1].set_ylabel('Residual at t')
+
+plt.tight_layout()
+plt.savefig('figures/06_autocorrelation_diagnostics.png', dpi=150, bbox_inches='tight')
 plt.close()
 
 
+# ============================================================
+# STATISTICAL TESTS
+# Runs formal hypothesis tests for heteroscedasticity, autocorrelation,
+# and joint significance of regressor groups. All tests use model_ols
+# residuals; F-tests use model_nw (Newey-West) for robust inference.
+#
+# Outputs:
+#   output/heteroscedasticity_tests.txt — Breusch-Pagan and White test results,
+#                                         plus classical vs HC3 SE comparison
+#   output/autocorrelation_tests.txt    — Durbin-Watson and Breusch-Godfrey
+#                                         LM test results
+#   output/stage9_ftests.txt            — three joint Wald F-tests under HAC SEs
+# ============================================================
 
-# ----------------------------
-# STAGE 7 — HETEROSCEDASTICITY TESTS AND CORRECTION
-# ----------------------------
-from statsmodels.stats.diagnostic import het_breuschpagan, het_white
+# --- Heteroscedasticity tests ---
+# Breusch-Pagan and White tests both test H0: homoscedasticity.
+# The SE comparison table shows how much SEs shift when switching to HC3.
+bp_stat, bp_p, bp_f, bp_fp = het_breuschpagan(model_ols.resid, X)
+w_stat, w_p, w_f, w_fp = het_white(model_ols.resid, X)
 
-# Re-run Model Log to have it handy
-model_log = sm.OLS(y, X).fit()
-
-# --- Breusch-Pagan test ---
-bp_stat, bp_p, bp_f, bp_fp = het_breuschpagan(model_log.resid, X)
-
-# --- White test ---
-w_stat, w_p, w_f, w_fp = het_white(model_log.resid, X)
-
-# --- Corrected model with HC3 robust standard errors ---
-model_log_robust = sm.OLS(y, X).fit(cov_type='HC3')
-
-comparison = pd.DataFrame({
-    'Coefficient': model_log.params.round(4),
-    'Classical SE': model_log.bse.round(4),
-    'Classical p': model_log.pvalues.round(4),
-    'HC3 Robust SE': model_log_robust.bse.round(4),
-    'HC3 Robust p': model_log_robust.pvalues.round(4),
+se_comparison = pd.DataFrame({
+    'Coefficient': model_ols.params.round(4),
+    'Classical SE': model_ols.bse.round(4),
+    'Classical p': model_ols.pvalues.round(4),
+    'HC3 Robust SE': model_hc3.bse.round(4),
+    'HC3 Robust p': model_hc3.pvalues.round(4),
 })
-comparison['SE Change (%)'] = (100 * (model_log_robust.bse - model_log.bse) / model_log.bse).round(1)
+se_comparison['SE Change (%)'] = (100 * (model_hc3.bse - model_ols.bse) / model_ols.bse).round(1)
 
 hetero_text = "\n".join([
     "=" * 60,
@@ -236,89 +382,15 @@ hetero_text = "\n".join([
     "=" * 80,
     "COMPARISON: CLASSICAL vs. HC3-ROBUST STANDARD ERRORS",
     "=" * 80,
-    comparison.to_string(),
+    se_comparison.to_string(),
 ])
 save_text(hetero_text, 'heteroscedasticity_tests.txt')
 
-
-
-# ----------------------------
-# MODEL 2 — LOG-LIN WITH HC3 ROBUST STANDARD ERRORS
-# ----------------------------
-# Fit with HC3 robust standard errors
-model_2 = sm.OLS(y, X).fit(cov_type='HC3')
-
-model2_text = "\n".join([
-    "=" * 75,
-    "MODEL 2 — LOG-LIN, HC3-ROBUST STANDARD ERRORS",
-    "=" * 75,
-    str(model_2.summary()),
-])
-save_text(model2_text, 'model2_hc3_summary.txt')
-
-
-# ----------------------------
-# MODEL 3 — LOG-LIN WITH NEWEY-WEST HAC STANDARD ERRORS
-# ----------------------------
-# Lag length for quarterly data: L = floor(4 * (n/100)^(2/9))
-import math
-n_obs = len(df)
-nw_lags = math.floor(4 * (n_obs / 100) ** (2 / 9))
-
-model_3_nw = sm.OLS(y, X).fit(cov_type='HAC', cov_kwds={'maxlags': nw_lags})
-
-model3_text = "\n".join([
-    "=" * 75,
-    f"MODEL 3 — LOG-LIN, NEWEY-WEST HAC STANDARD ERRORS (maxlags={nw_lags})",
-    "=" * 75,
-    str(model_3_nw.summary()),
-])
-save_text(model3_text, 'model3_nw_summary.txt')
-
-# ----------------------------
-# SIDE-BY-SIDE: MODEL 1 vs MODEL 2 vs MODEL 3
-# ----------------------------
-model_1 = sm.OLS(y, X).fit()
-model_2 = sm.OLS(y, X).fit(cov_type='HC3')
-
-comparison_text = "\n".join([
-    "=" * 110,
-    "MODEL 1 (Classical) vs MODEL 2 (HC3) vs MODEL 3 (Newey-West HAC)",
-    "=" * 110,
-    f"{'Variable':<16}{'M1 coef':>10}{'M1 SE':>10}{'M1 p':>10}   "
-    f"{'M2 coef':>10}{'M2 SE':>10}{'M2 p':>10}   "
-    f"{'M3 coef':>10}{'M3 SE':>10}{'M3 p':>10}",
-    "-" * 110,
-])
-for v in X.columns:
-    c = model_1.params[v]
-    se1, p1 = model_1.bse[v], model_1.pvalues[v]
-    se2, p2 = model_2.bse[v], model_2.pvalues[v]
-    se3, p3 = model_3_nw.bse[v], model_3_nw.pvalues[v]
-    comparison_text = comparison_text + "\n" + \
-        f"{v:<16}{c:>+10.4f}{se1:>10.4f}{p1:>10.4f}   " \
-        f"{c:>+10.4f}{se2:>10.4f}{p2:>10.4f}   " \
-        f"{c:>+10.4f}{se3:>10.4f}{p3:>10.4f}"
-
-comparison_text += "\n\n  Note: M1, M2, M3 have identical coefficients. Only SEs differ."
-save_text(comparison_text, 'model_se_comparison.txt')
-
-
-
-# ----------------------------
-# STAGE 8 — AUTOCORRELATION TESTING AND CORRECTION
-# ----------------------------
-from statsmodels.stats.stattools import durbin_watson
-from statsmodels.stats.diagnostic import acorr_breusch_godfrey
-
-# Use our baseline log-lin for diagnostics
-model_log = sm.OLS(y, X).fit()  # classical fit for residual extraction
-
-# --- Durbin-Watson ---
-dw = durbin_watson(model_log.resid)
-
-# --- Breusch-Godfrey LM test (up to 4 lags = 1 year of quarters) ---
-bg_stat, bg_p, bg_f, bg_fp = acorr_breusch_godfrey(model_log, nlags=4)
+# --- Autocorrelation tests ---
+# Durbin-Watson detects first-order autocorrelation; Breusch-Godfrey
+# extends the test up to 4 lags (one year of quarterly data).
+dw = durbin_watson(model_ols.resid)
+bg_stat, bg_p, bg_f, bg_fp = acorr_breusch_godfrey(model_ols, nlags=4)
 
 autocorr_text = "\n".join([
     "=" * 60,
@@ -340,117 +412,12 @@ autocorr_text = "\n".join([
 ])
 save_text(autocorr_text, 'autocorrelation_tests.txt')
 
-# --- Residual time series plot ---
-fig, axes = plt.subplots(1, 2, figsize=(14, 4))
-axes[0].plot(df['observation_date'], model_log.resid)
-axes[0].axhline(0, color='black', linewidth=0.8, linestyle='--')
-axes[0].set_title('Residuals Over Time')
-axes[0].set_xlabel('Date')
-axes[0].set_ylabel('Residual')
-axes[0].grid(True, alpha=0.3)
-
-# Residuals vs. lagged residuals (visualizes AR(1) structure)
-resid_lag = model_log.resid.shift(1)
-axes[1].scatter(resid_lag, model_log.resid, alpha=0.6, s=22, color='#8B0000',
-                edgecolor='black', linewidth=0.3)
-axes[1].axhline(0, color='black', linewidth=0.5, linestyle=':')
-axes[1].axvline(0, color='black', linewidth=0.5, linestyle=':')
-rho = model_log.resid.autocorr(lag=1)
-axes[1].set_title(f'Residual vs. Lagged Residual (ρ̂ = {rho:.3f})')
-axes[1].set_xlabel('Residual at t-1')
-axes[1].set_ylabel('Residual at t')
-
-plt.tight_layout()
-plt.savefig('figures/06_autocorrelation_diagnostics.png', dpi=150, bbox_inches='tight')
-plt.close()
-
-# --- Cochrane-Orcutt correction ---
-rho_hat = model_log.resid.autocorr(lag=1)
-co_lines = [
-    "=" * 60,
-    "COCHRANE-ORCUTT ITERATIVE PROCEDURE",
-    "=" * 60,
-    f"\n  Step 1: Estimated ρ from residuals:  ρ̂ = {rho_hat:.4f}",
-]
-
-# Step 2: Quasi-difference all variables
-y_qd = y - rho_hat * y.shift(1)
-X_qd = X - rho_hat * X.shift(1)
-# Drop the first observation (which is NaN after shifting)
-y_qd = y_qd.dropna()
-X_qd = X_qd.dropna()
-co_lines.append(f"\n  Step 2: Quasi-differenced data has {len(y_qd)} observations (one dropped)")
-
-# Step 3: Re-run OLS on quasi-differenced data
-model_3 = sm.OLS(y_qd, X_qd).fit()
-co_lines.append(f"\n  Step 3: OLS on quasi-differenced data complete")
-
-# Step 4: Iterate to convergence
-max_iter = 10
-tol = 1e-6
-for it in range(max_iter):
-    rho_prev = rho_hat
-    residuals_original = y - X @ model_3.params
-    rho_hat = residuals_original.autocorr(lag=1)
-
-    y_qd = (y - rho_hat * y.shift(1)).dropna()
-    X_qd = (X - rho_hat * X.shift(1)).dropna()
-    model_3 = sm.OLS(y_qd, X_qd).fit()
-
-    if abs(rho_hat - rho_prev) < tol:
-        co_lines.append(f"\n  Converged after {it+1} iterations. Final ρ̂ = {rho_hat:.4f}")
-        break
-else:
-    co_lines.append(f"\n  Reached max {max_iter} iterations. Final ρ̂ = {rho_hat:.4f}")
-
-# --- Check whether autocorrelation is resolved in Model 3 residuals ---
-dw_after = durbin_watson(model_3.resid)
-co_lines.append(f"\n  Model 3 Durbin-Watson statistic: {dw_after:.4f}")
-
-save_text("\n".join(co_lines), 'cochrane_orcutt.txt')
-
-# --- Side-by-side comparison: Model 2 (HC3) vs Model 3 (Cochrane-Orcutt) ---
-model_2 = sm.OLS(y, X).fit(cov_type='HC3')
-
-comp_lines = [
-    "=" * 95,
-    "MODEL 2 (HC3) vs MODEL 3 (Cochrane-Orcutt)",
-    "=" * 95,
-    f"{'Variable':<15}{'M2 Coef':>10}{'M2 SE':>10}{'M2 p':>10}    {'M3 Coef':>10}{'M3 SE':>10}{'M3 p':>10}",
-    "-" * 95,
-]
-for v in X.columns:
-    c2, se2, p2 = model_2.params[v], model_2.bse[v], model_2.pvalues[v]
-    c3, se3, p3 = model_3.params[v], model_3.bse[v], model_3.pvalues[v]
-    comp_lines.append(f"{v:<15}{c2:>+10.4f}{se2:>10.4f}{p2:>10.4f}    {c3:>+10.4f}{se3:>10.4f}{p3:>10.4f}")
-
-comp_lines.extend([
-    f"\n  DW Model 2: {durbin_watson(model_log.resid):.4f}   →   DW Model 3: {dw_after:.4f}",
-    f"  R² Model 2: {model_log.rsquared:.4f}            →   R² Model 3: {model_3.rsquared:.4f}",
-    f"  Note: Model 3 R² is on quasi-differenced data and not directly comparable to Model 2.",
-])
-save_text("\n".join(comp_lines), 'model_comparison.txt')
-
-
-
-# ----------------------------
-# STAGE 9 — JOINT F-TESTS (Newey-West HAC)
-# ----------------------------
-
-# Primary model for all F-tests
-import math
-n_obs = len(df)
-nw_lags = math.floor(4 * (n_obs / 100) ** (2 / 9))
-model_primary = sm.OLS(y, X).fit(cov_type='HAC', cov_kwds={'maxlags': nw_lags})
-
-# --- F-Test 1: Dummies jointly significant? ---
-f1 = model_primary.f_test("D_Crisis = 0, D_Covid = 0")
-
-# --- F-Test 2: Macro variables jointly significant? ---
-f2 = model_primary.f_test("UNRATE = 0, MORTGAGE30US = 0, HPI_Growth = 0, GDPGrowth = 0")
-
-# --- F-Test 3: Can we drop GDPGrowth and D_Crisis? ---
-f3 = model_primary.f_test("GDPGrowth = 0, D_Crisis = 0")
+# --- Joint F-tests (Newey-West HAC) ---
+# Three Wald tests on model_nw to assess whether regressor groups
+# can be excluded. Results inform the trimmed specification (Model 4).
+f1 = model_nw.f_test("D_Crisis = 0, D_Covid = 0")
+f2 = model_nw.f_test("UNRATE = 0, MORTGAGE30US = 0, HPI_Growth = 0, GDPGrowth = 0")
+f3 = model_nw.f_test("GDPGrowth = 0, D_Crisis = 0")
 
 ftests_text = "\n".join([
     "=" * 70,
@@ -481,58 +448,107 @@ ftests_text = "\n".join([
 save_text(ftests_text, 'stage9_ftests.txt')
 
 
+# ============================================================
+# RESULTS REPORTING
+# Writes all final output files: individual model summaries,
+# side-by-side SE comparisons, Cochrane-Orcutt iteration log,
+# and the consolidated four-model results table for the paper.
+#
+# Outputs:
+#   output/model1_ols_summary.txt   — full statsmodels summary, classical OLS
+#   output/model2_hc3_summary.txt   — full statsmodels summary, HC3 robust
+#   output/model3_nw_summary.txt    — full statsmodels summary, Newey-West
+#   output/model_se_comparison.txt  — M1/M2/M3 coefficients with all three SEs
+#   output/cochrane_orcutt.txt      — CO iteration log and final DW statistic
+#   output/model_comparison.txt     — HC3 vs Cochrane-Orcutt side-by-side
+#   output/final_results_table.txt  — four-model paper table with stars and SEs
+# ============================================================
 
-# ----------------------------
-# STAGE 10 — FINAL RESULTS TABLE
-# ----------------------------
-import math
+# Individual model summaries
+save_model_summary(model_ols, "MODEL 1 — LOG-LIN, CLASSICAL OLS", 'model1_ols_summary.txt')
+save_model_summary(model_hc3, "MODEL 2 — LOG-LIN, HC3-ROBUST STANDARD ERRORS", 'model2_hc3_summary.txt')
+save_model_summary(model_nw, f"MODEL 3 — LOG-LIN, NEWEY-WEST HAC STANDARD ERRORS (maxlags={nw_lags})", 'model3_nw_summary.txt')
 
-# Define specifications
-regressors_full = ['UNRATE', 'MORTGAGE30US', 'HPI_Growth', 'GDPGrowth', 'D_Crisis', 'D_Covid']
-regressors_trimmed = ['UNRATE', 'MORTGAGE30US', 'HPI_Growth', 'D_Covid']
+# Side-by-side SE comparison: same coefficients, three different SE estimators
+comparison_text = "\n".join([
+    "=" * 110,
+    "MODEL 1 (Classical) vs MODEL 2 (HC3) vs MODEL 3 (Newey-West HAC)",
+    "=" * 110,
+    f"{'Variable':<16}{'M1 coef':>10}{'M1 SE':>10}{'M1 p':>10}   "
+    f"{'M2 coef':>10}{'M2 SE':>10}{'M2 p':>10}   "
+    f"{'M3 coef':>10}{'M3 SE':>10}{'M3 p':>10}",
+    "-" * 110,
+])
+for v in X.columns:
+    c = model_ols.params[v]
+    se1, p1 = model_ols.bse[v], model_ols.pvalues[v]
+    se2, p2 = model_hc3.bse[v], model_hc3.pvalues[v]
+    se3, p3 = model_nw.bse[v], model_nw.pvalues[v]
+    comparison_text = comparison_text + "\n" + \
+        f"{v:<16}{c:>+10.4f}{se1:>10.4f}{p1:>10.4f}   " \
+        f"{c:>+10.4f}{se2:>10.4f}{p2:>10.4f}   " \
+        f"{c:>+10.4f}{se3:>10.4f}{p3:>10.4f}"
+comparison_text += "\n\n  Note: M1, M2, M3 have identical coefficients. Only SEs differ."
+save_text(comparison_text, 'model_se_comparison.txt')
 
-# Newey-West lag length
-n_obs = len(df)
-nw_lags = math.floor(4 * (n_obs / 100) ** (2 / 9))
+# Cochrane-Orcutt iteration log + post-correction DW check
+dw_after = durbin_watson(model_co.resid)
+co_lines.append(f"\n  Model 3 Durbin-Watson statistic: {dw_after:.4f}")
+save_text("\n".join(co_lines), 'cochrane_orcutt.txt')
 
-# Fit all four models
-X_full = sm.add_constant(df[regressors_full])
-X_trim = sm.add_constant(df[regressors_trimmed])
-y_log = df['log_Delinquency']
-y_lin = df['Delinquency']
+# HC3 vs Cochrane-Orcutt: compares coefficients and SEs across the two
+# approaches to correcting for heteroscedasticity and autocorrelation
+comp_lines = [
+    "=" * 95,
+    "MODEL 2 (HC3) vs MODEL 3 (Cochrane-Orcutt)",
+    "=" * 95,
+    f"{'Variable':<15}{'M2 Coef':>10}{'M2 SE':>10}{'M2 p':>10}    {'M3 Coef':>10}{'M3 SE':>10}{'M3 p':>10}",
+    "-" * 95,
+]
+for v in X.columns:
+    c2, se2, p2 = model_hc3.params[v], model_hc3.bse[v], model_hc3.pvalues[v]
+    c3, se3, p3 = model_co.params[v], model_co.bse[v], model_co.pvalues[v]
+    comp_lines.append(f"{v:<15}{c2:>+10.4f}{se2:>10.4f}{p2:>10.4f}    {c3:>+10.4f}{se3:>10.4f}{p3:>10.4f}")
+comp_lines.extend([
+    f"\n  DW Model 2: {durbin_watson(model_ols.resid):.4f}   →   DW Model 3: {dw_after:.4f}",
+    f"  R² Model 2: {model_ols.rsquared:.4f}            →   R² Model 3: {model_co.rsquared:.4f}",
+    f"  Note: Model 3 R² is on quasi-differenced data and not directly comparable to Model 2.",
+])
+save_text("\n".join(comp_lines), 'model_comparison.txt')
 
-m1_linear   = sm.OLS(y_lin, X_full).fit()                                                # Model 1: linear DV
-m2_classic  = sm.OLS(y_log, X_full).fit()                                                # Model 2: log-lin classical
-m3_nw       = sm.OLS(y_log, X_full).fit(cov_type='HAC', cov_kwds={'maxlags': nw_lags})   # Model 3: log-lin NW
-m4_trim     = sm.OLS(y_log, X_trim).fit(cov_type='HAC', cov_kwds={'maxlags': nw_lags})   # Model 4: trimmed NW
+# Final four-model results table for the paper
+# Rows: each regressor; columns: Model 1 (linear), 2 (classical), 3 (NW full), 4 (NW trimmed)
+# Bottom rows: n, R², adjusted R², F-statistic, Durbin-Watson
+all_vars = ['const'] + X_vars
 
-# Helper: format coefficient with asterisks and SE
-def fmt(coef, se, p):
-    if pd.isna(coef): return ''
-    stars = '***' if p < 0.01 else ('**' if p < 0.05 else ('*' if p < 0.10 else ''))
-    return f"{coef:+.4f}{stars}\n  ({se:.4f})"
+def overall_f(model, regressors):
+    # Computes a joint Wald F-test for all regressors in the list.
+    joint = ", ".join([f"{v} = 0" for v in regressors])
+    f = model.f_test(joint)
+    return float(f.fvalue), float(f.pvalue)
 
-# All variables that appear in any model (in order)
-all_vars = ['const'] + regressors_full
+f1_stat, f1_p = model_linear.fvalue, model_linear.f_pvalue
+f2_stat, f2_p = model_ols.fvalue, model_ols.f_pvalue
+f3_stat, f3_p = overall_f(model_nw, X_vars)
+f4_stat, f4_p = overall_f(model_nw_trim, regressors_trimmed)
 
-# Build table rows
+def fmt_f(f, p):
+    return f"{f:.2f}{significance_stars(p)}"
+
 table_lines = [
     "=" * 110,
     f"{'':<18}{'Model 1':>20}{'Model 2':>20}{'Model 3':>20}{'Model 4':>20}",
     f"{'':<18}{'(Linear)':>20}{'(Log-Lin Classical)':>20}{'(Log-Lin NW)':>20}{'(Log-Lin Trimmed)':>20}",
     "-" * 110,
 ]
-
 for v in all_vars:
-    # M1 always has it, M2/M3 always have it (full), M4 only if in trimmed
-    c1 = fmt(m1_linear.params.get(v), m1_linear.bse.get(v), m1_linear.pvalues.get(v))
-    c2 = fmt(m2_classic.params.get(v), m2_classic.bse.get(v), m2_classic.pvalues.get(v))
-    c3 = fmt(m3_nw.params.get(v), m3_nw.bse.get(v), m3_nw.pvalues.get(v))
-    if v in m4_trim.params.index:
-        c4 = fmt(m4_trim.params.get(v), m4_trim.bse.get(v), m4_trim.pvalues.get(v))
+    c1 = format_coef(model_linear.params.get(v), model_linear.bse.get(v), model_linear.pvalues.get(v))
+    c2 = format_coef(model_ols.params.get(v), model_ols.bse.get(v), model_ols.pvalues.get(v))
+    c3 = format_coef(model_nw.params.get(v), model_nw.bse.get(v), model_nw.pvalues.get(v))
+    if v in model_nw_trim.params.index:
+        c4 = format_coef(model_nw_trim.params.get(v), model_nw_trim.bse.get(v), model_nw_trim.pvalues.get(v))
     else:
         c4 = "—"
-    # Each variable takes 2 lines (coef + SE)
     parts1 = c1.split('\n') if c1 else ['', '']
     parts2 = c2.split('\n') if c2 else ['', '']
     parts3 = c3.split('\n') if c3 else ['', '']
@@ -544,39 +560,21 @@ for v in all_vars:
     table_lines.append(f"{v:<18}{parts1[0]:>20}{parts2[0]:>20}{parts3[0]:>20}{parts4[0]:>20}")
     table_lines.append(f"{'':<18}{parts1[1]:>20}{parts2[1]:>20}{parts3[1]:>20}{parts4[1]:>20}")
 
-# Helper for robust F-statistic of overall model significance
-def overall_f(model, regressors):
-    joint = ", ".join([f"{v} = 0" for v in regressors])
-    f = model.f_test(joint)
-    return float(f.fvalue), float(f.pvalue)
-
-# Compute overall F for each model
-f1_stat, f1_p = m1_linear.fvalue, m1_linear.f_pvalue       # Classical OLS, classical F
-f2_stat, f2_p = m2_classic.fvalue, m2_classic.f_pvalue     # Classical OLS, classical F
-f3_stat, f3_p = overall_f(m3_nw, regressors_full)          # Newey-West Wald F
-f4_stat, f4_p = overall_f(m4_trim, regressors_trimmed)     # Newey-West Wald F
-
-# Format F-stat with stars based on its p-value
-def fmt_f(f, p):
-    stars = '***' if p < 0.01 else ('**' if p < 0.05 else ('*' if p < 0.10 else ''))
-    return f"{f:.2f}{stars}"
-
-# Bottom rows: summary statistics
 table_lines.extend([
     "-" * 110,
-    f"{'n':<18}{m1_linear.nobs:>20.0f}{m2_classic.nobs:>20.0f}{m3_nw.nobs:>20.0f}{m4_trim.nobs:>20.0f}",
-    f"{'R-squared':<18}{m1_linear.rsquared:>20.4f}{m2_classic.rsquared:>20.4f}{m3_nw.rsquared:>20.4f}{m4_trim.rsquared:>20.4f}",
-    f"{'Adj. R-squared':<18}{m1_linear.rsquared_adj:>20.4f}{m2_classic.rsquared_adj:>20.4f}{m3_nw.rsquared_adj:>20.4f}{m4_trim.rsquared_adj:>20.4f}",
+    f"{'n':<18}{model_linear.nobs:>20.0f}{model_ols.nobs:>20.0f}{model_nw.nobs:>20.0f}{model_nw_trim.nobs:>20.0f}",
+    f"{'R-squared':<18}{model_linear.rsquared:>20.4f}{model_ols.rsquared:>20.4f}{model_nw.rsquared:>20.4f}{model_nw_trim.rsquared:>20.4f}",
+    f"{'Adj. R-squared':<18}{model_linear.rsquared_adj:>20.4f}{model_ols.rsquared_adj:>20.4f}{model_nw.rsquared_adj:>20.4f}{model_nw_trim.rsquared_adj:>20.4f}",
     f"{'F-statistic':<18}"
     f"{fmt_f(f1_stat, f1_p):>20}"
     f"{fmt_f(f2_stat, f2_p):>20}"
     f"{fmt_f(f3_stat, f3_p):>20}"
     f"{fmt_f(f4_stat, f4_p):>20}",
     f"{'Durbin-Watson':<18}"
-    f"{durbin_watson(m1_linear.resid):>20.4f}"
-    f"{durbin_watson(m2_classic.resid):>20.4f}"
-    f"{durbin_watson(m3_nw.resid):>20.4f}"
-    f"{durbin_watson(m4_trim.resid):>20.4f}",
+    f"{durbin_watson(model_linear.resid):>20.4f}"
+    f"{durbin_watson(model_ols.resid):>20.4f}"
+    f"{durbin_watson(model_nw.resid):>20.4f}"
+    f"{durbin_watson(model_nw_trim.resid):>20.4f}",
     "-" * 110,
     "Notes:",
     "  Coefficients with standard errors in parentheses.",
@@ -588,5 +586,4 @@ table_lines.extend([
     "  Model 4 excludes GDPGrowth and D_Crisis based on joint F-test (F = 0.43, p = 0.649).",
     "=" * 110,
 ])
-
 save_text("\n".join(table_lines), 'final_results_table.txt')
