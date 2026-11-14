@@ -6,8 +6,8 @@ MODEL 1 — LOG-LIN, CLASSICAL OLS
 Dep. Variable:        log_Delinquency   R-squared:                       0.815
 Model:                            OLS   Adj. R-squared:                  0.806
 Method:                 Least Squares   F-statistic:                     97.49
-Date:                Sat, 09 May 2026   Prob (F-statistic):           3.12e-46
-Time:                        23:34:45   Log-Likelihood:                -8.8881
+Date:                Sun, 10 May 2026   Prob (F-statistic):           3.12e-46
+Time:                        22:40:20   Log-Likelihood:                -8.8881
 No. Observations:                 140   AIC:                             31.78
 Df Residuals:                     133   BIC:                             52.37
 Df Model:                           6                                         

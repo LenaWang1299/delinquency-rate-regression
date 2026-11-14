@@ -14,3 +14,7 @@ __pycache__/
 
 # PyCharm IDE settings
 .idea/
+
+# Local analysis and test caches
+.pytest_cache/
+.coverage

@@ -1,8 +1,8 @@
 # ============================================================
 # IMPORTS
 # ============================================================
-import os
 import math
+from pathlib import Path
 import pandas as pd
 import numpy as np
 import matplotlib.pyplot as plt
@@ -19,13 +19,19 @@ from statsmodels.stats.stattools import durbin_watson
 # used throughout the script for saving text files and formatting
 # model results.
 # ============================================================
-os.makedirs('figures', exist_ok=True)
-os.makedirs('output', exist_ok=True)
+PROJECT_ROOT = Path(__file__).resolve().parent
+DATA_DIR = PROJECT_ROOT / 'Data'
+FIGURES_DIR = PROJECT_ROOT / 'Figures'
+OUTPUT_DIR = PROJECT_ROOT / 'Output'
+
+FIGURES_DIR.mkdir(exist_ok=True)
+OUTPUT_DIR.mkdir(exist_ok=True)
+sns.set_theme(style='whitegrid', context='notebook', palette='deep')
 
 def save_text(content, filename):
     # Writes content to output/<filename> and prints it to console.
-    path = os.path.join('output', filename)
-    with open(path, 'w') as f:
+    path = OUTPUT_DIR / filename
+    with path.open('w', encoding='utf-8') as f:
         f.write(content)
     print(content)
 
@@ -64,7 +70,12 @@ def save_model_summary(model, label, filename):
 # Outputs:
 #   output/summary_statistics.txt — descriptive stats for all analysis variables
 # ============================================================
-df = pd.read_excel('data/Econ318_RawData_Paper.xlsx')
+data_path = DATA_DIR / 'Econ318_RawData_Paper.xlsx'
+if not data_path.exists():
+    raise FileNotFoundError(f"Expected input workbook at {data_path}")
+
+df = pd.read_excel(data_path)
+df['observation_date'] = pd.to_datetime(df['observation_date'])
 df['log_Delinquency'] = np.log(df['Delinquency'])
 
 Y_var = 'Delinquency'           # levels DV (Model 1)
@@ -111,7 +122,7 @@ for i, var in enumerate(X_vars):
     axes[i].set_xlabel(var)
     axes[i].set_ylabel(Y_var)
 plt.tight_layout()
-plt.savefig('figures/00_scatter_plots.png', dpi=150, bbox_inches='tight')
+plt.savefig(FIGURES_DIR / '00_scatter_plots.png', dpi=150, bbox_inches='tight')
 plt.close()
 
 # --- Dependent variable comparison: raw vs log transformation (paper figure) ---
@@ -126,7 +137,7 @@ axes[1].set_title('log(Delinquency)')
 axes[1].set_xlabel('log(Delinquency Rate)')
 axes[1].set_ylabel('Frequency')
 plt.tight_layout()
-plt.savefig('figures/01_dv_histogram_comparison.png', dpi=150, bbox_inches='tight')
+plt.savefig(FIGURES_DIR / '01_dv_histogram_comparison.png', dpi=150, bbox_inches='tight')
 plt.close()
 
 # --- Histograms of explanatory variables (documentation, not in paper) ---
@@ -140,7 +151,7 @@ for i, var in enumerate(continuous_X_vars):
     axes[i].set_xlabel(var)
     axes[i].set_ylabel('Frequency')
 plt.tight_layout()
-plt.savefig('figures/01_histograms.png', dpi=150, bbox_inches='tight')
+plt.savefig(FIGURES_DIR / '01_histograms.png', dpi=150, bbox_inches='tight')
 plt.close()
 
 # --- Time series ---
@@ -161,12 +172,14 @@ fig, axes = plt.subplots(3, 2, figsize=(13, 10))
 axes = axes.flatten()
 for i, var in enumerate(vars_no_dummy):
     axes[i].plot(df['observation_date'], df[var])
-    axes[i].axvspan(crisis_start, crisis_end, alpha=0.6)   # 2007-2010 financial crisis
-    axes[i].axvspan(covid_start, covid_end, alpha=0.6)     # 2020-2021 COVID period
+    axes[i].axvspan(crisis_start, crisis_end, color='#d95f02', alpha=0.15)
+    axes[i].axvspan(covid_start, covid_end, color='#7570b3', alpha=0.15)
+    axes[i].set_title(var.replace('_', ' '))
+    axes[i].set_ylabel(units[var])
 axes[5].axis('off')
 plt.suptitle('Time Series: 1991Q1 – 2025Q4')
 plt.tight_layout()
-plt.savefig('figures/02_time_series.png', dpi=150, bbox_inches='tight')
+plt.savefig(FIGURES_DIR / '02_time_series.png', dpi=150, bbox_inches='tight')
 plt.close()
 
 # --- Correlation matrix ---
@@ -178,7 +191,7 @@ sns.heatmap(corr_matrix, annot=True, fmt='.2f', cmap='RdBu_r',
             vmin=-1, vmax=1, center=0, square=True)
 plt.title('Correlation Matrix')
 plt.tight_layout()
-plt.savefig('figures/03_correlation_heatmap.png', dpi=150, bbox_inches='tight')
+plt.savefig(FIGURES_DIR / '03_correlation_heatmap.png', dpi=150, bbox_inches='tight')
 plt.close()
 
 
@@ -310,7 +323,7 @@ axes[1].set_title('Log-Linear Specification: Residuals vs Fitted')
 axes[1].set_xlabel('Fitted log(Delinquency)')
 axes[1].set_ylabel('Residuals')
 plt.tight_layout()
-plt.savefig('figures/04_residual_comparison.png', dpi=150, bbox_inches='tight')
+plt.savefig(FIGURES_DIR / '04_residual_comparison.png', dpi=150, bbox_inches='tight')
 plt.close()
 
 # QQ plots: checks whether residuals follow a normal distribution in each spec.
@@ -320,7 +333,7 @@ axes[0].set_title('Linear Specification: QQ Plot')
 sm.qqplot(model_ols.resid, line='s', ax=axes[1])
 axes[1].set_title('Log-Linear Specification: QQ Plot')
 plt.tight_layout()
-plt.savefig('figures/05_qq_comparison.png', dpi=150, bbox_inches='tight')
+plt.savefig(FIGURES_DIR / '05_qq_comparison.png', dpi=150, bbox_inches='tight')
 plt.close()
 
 # Left panel: residuals over time — visual check for autocorrelation
@@ -343,7 +356,7 @@ axes[1].set_xlabel('Residual at t-1')
 axes[1].set_ylabel('Residual at t')
 
 plt.tight_layout()
-plt.savefig('figures/06_autocorrelation_diagnostics.png', dpi=150, bbox_inches='tight')
+plt.savefig(FIGURES_DIR / '06_autocorrelation_diagnostics.png', dpi=150, bbox_inches='tight')
 plt.close()
 
 
@@ -483,8 +496,8 @@ save_text(ftests_text, 'stage9_ftests.txt')
 # ============================================================
 
 # Individual model summaries
-save_model_summary(model_ols, "MODEL 1 — LOG-LIN, CLASSICAL OLS", 'model1_ols_summary.txt')
-save_model_summary(model_hc3, "MODEL 2 — LOG-LIN, HC3-ROBUST STANDARD ERRORS", 'model2_hc3_summary.txt')
+save_model_summary(model_ols, "MODEL 2 — LOG-LIN, CLASSICAL OLS", 'model1_ols_summary.txt')
+save_model_summary(model_hc3, "LOG-LIN SENSITIVITY CHECK — HC3-ROBUST STANDARD ERRORS", 'model2_hc3_summary.txt')
 save_model_summary(model_nw, f"MODEL 3 — LOG-LIN, NEWEY-WEST HAC STANDARD ERRORS (maxlags={nw_lags})", 'model3_nw_summary.txt')
 
 # Side-by-side SE comparison: same coefficients, three different SE estimators
